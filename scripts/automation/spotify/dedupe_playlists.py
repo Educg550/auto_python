@@ -1,0 +1,125 @@
+"""
+Remove duplicate tracks from Spotify playlists.
+
+For every duplicate URI the script:
+  1. Removes ALL occurrences from the playlist.
+  2. Adds the track back exactly once.
+
+Non-duplicate tracks and local files are never touched.
+
+Usage
+-----
+    # Clean all playlists owned by the authenticated user
+    uv run scripts/automation/spotify/dedupe_playlists.py
+
+    # Clean specific playlists only
+    uv run scripts/automation/spotify/dedupe_playlists.py --id <id1> <id2> ...
+
+Environment variables required:
+    SPOTIFY_CLIENT_ID
+    SPOTIFY_CLIENT_SECRET
+    SPOTIFY_REDIRECT_URI  (default: http://localhost:8888/callback)
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from collections import Counter
+
+from scripts.automation.spotify import (
+    add_playlist_tracks,
+    fetch_current_user,
+    fetch_playlist_tracks,
+    fetch_user_playlists,
+    get_client,
+    remove_playlist_tracks,
+)
+
+
+def _collect_uris(items: list[dict]) -> list[str]:
+    """Extract track URIs from raw playlist-track items.
+
+    Skips null items (unavailable tracks) and local files which cannot be
+    managed via the Web API.
+    """
+    uris = []
+    for item in items:
+        track = item.get("track")
+        if not track:
+            continue
+        uri = track.get("uri") or ""
+        if not uri or uri.startswith("spotify:local:"):
+            continue
+        uris.append(uri)
+    return uris
+
+
+def dedupe_playlist(playlist_id: str, sp) -> int:
+    """Remove duplicate tracks from *playlist_id*.
+
+    Returns the number of unique URIs that had duplicates removed.
+    """
+    items = fetch_playlist_tracks(playlist_id, sp=sp)
+    uris = _collect_uris(items)
+
+    if not uris:
+        return 0
+
+    counts = Counter(uris)
+    duplicate_uris = [uri for uri, n in counts.items() if n > 1]
+
+    if not duplicate_uris:
+        return 0
+
+    # Remove all occurrences, then re-add each once.
+    remove_playlist_tracks(playlist_id, duplicate_uris, sp=sp)
+    add_playlist_tracks(playlist_id, duplicate_uris, sp=sp)
+
+    return len(duplicate_uris)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="Remove duplicate tracks from Spotify playlists.",
+    )
+    parser.add_argument(
+        "--id",
+        nargs="+",
+        dest="playlist_ids",
+        metavar="PLAYLIST_ID",
+        help="One or more playlist IDs to clean (default: all playlists owned by you).",
+    )
+    args = parser.parse_args()
+
+    sp = get_client(user_auth=True)
+
+    if args.playlist_ids:
+        targets = args.playlist_ids
+    else:
+        user = fetch_current_user(sp=sp)
+        user_id = user["id"]
+        all_playlists = fetch_user_playlists(user_id, sp=sp)
+        targets = [p["id"] for p in all_playlists if p["owner"]["id"] == user_id]
+
+        if not targets:
+            print("No playlists owned by you were found.")
+            sys.exit(0)
+
+        print(f"Found {len(targets)} playlist(s) owned by you.\n")
+
+    any_dupes = False
+    for playlist_id in targets:
+        n = dedupe_playlist(playlist_id, sp)
+        if n:
+            any_dupes = True
+            print(f"[cleaned]  {playlist_id}  — removed duplicates of {n} track(s)")
+        else:
+            print(f"[ok]       {playlist_id}  — no duplicates")
+
+    if not any_dupes:
+        print("\nAll playlists are already duplicate-free.")
+
+
+if __name__ == "__main__":
+    main()
