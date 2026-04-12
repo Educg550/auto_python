@@ -32,6 +32,7 @@ from lib.logger import get_logger, track
 from scripts.automation.spotify import (
     add_playlist_tracks,
     fetch_current_user,
+    fetch_playlist_by_id,
     fetch_playlist_tracks,
     fetch_user_playlists,
     get_client,
@@ -98,13 +99,19 @@ def main() -> None:
 
     sp = get_client(user_auth=True)
 
+    names: dict[str, str] = {}
+
     if args.playlist_ids:
         targets = args.playlist_ids
+        for pid in targets:
+            names[pid] = fetch_playlist_by_id(pid, sp=sp).get("name", pid)
     else:
         user = fetch_current_user(sp=sp)
         user_id = user["id"]
         all_playlists = fetch_user_playlists(user_id, sp=sp)
-        targets = [p["id"] for p in all_playlists if p["owner"]["id"] == user_id]
+        owned = [p for p in all_playlists if p["owner"]["id"] == user_id]
+        targets = [p["id"] for p in owned]
+        names = {p["id"]: p.get("name", p["id"]) for p in owned}
 
         if not targets:
             log.warning("No playlists owned by you were found.")
@@ -112,14 +119,19 @@ def main() -> None:
 
         log.info(f"Found {len(targets)} playlist(s) owned by you.")
 
+    def label(pid: str) -> str:
+        return f"{names.get(pid, pid)} ({pid})"
+
     any_dupes = False
     for playlist_id in track(targets, "Scanning playlists"):
         n = dedupe_playlist(playlist_id, sp)
         if n:
             any_dupes = True
-            log.info(f"[cleaned]  {playlist_id}  — removed duplicates of {n} track(s)")
+            log.info(
+                f"[cleaned]  {label(playlist_id)}  — removed duplicates of {n} track(s)"
+            )
         else:
-            log.debug(f"[ok]       {playlist_id}  — no duplicates")
+            log.debug(f"[ok]       {label(playlist_id)}  — no duplicates")
 
     if not any_dupes:
         log.info("All playlists are already duplicate-free.")
