@@ -27,6 +27,8 @@ import argparse
 import sys
 from collections import Counter
 
+from lib.logger import get_logger, track
+
 from scripts.automation.spotify import (
     add_playlist_tracks,
     fetch_current_user,
@@ -35,6 +37,8 @@ from scripts.automation.spotify import (
     get_client,
     remove_playlist_tracks,
 )
+
+log = get_logger(__name__)
 
 
 def _collect_uris(items: list[dict]) -> list[str]:
@@ -103,22 +107,22 @@ def main() -> None:
         targets = [p["id"] for p in all_playlists if p["owner"]["id"] == user_id]
 
         if not targets:
-            print("No playlists owned by you were found.")
+            log.warning("No playlists owned by you were found.")
             sys.exit(0)
 
-        print(f"Found {len(targets)} playlist(s) owned by you.\n")
+        log.info(f"Found {len(targets)} playlist(s) owned by you.")
 
     any_dupes = False
-    for playlist_id in targets:
+    for playlist_id in track(targets, "Scanning playlists"):
         n = dedupe_playlist(playlist_id, sp)
         if n:
             any_dupes = True
-            print(f"[cleaned]  {playlist_id}  — removed duplicates of {n} track(s)")
+            log.info(f"[cleaned]  {playlist_id}  — removed duplicates of {n} track(s)")
         else:
-            print(f"[ok]       {playlist_id}  — no duplicates")
+            log.debug(f"[ok]       {playlist_id}  — no duplicates")
 
     if not any_dupes:
-        print("\nAll playlists are already duplicate-free.")
+        log.info("All playlists are already duplicate-free.")
 
 
 if __name__ == "__main__":
