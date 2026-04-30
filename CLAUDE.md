@@ -10,7 +10,23 @@ This repository is a uv-managed collection of standalone Python scripts grouped 
 - **Never use `python script.py`** — always `uv run <path-to-script>` to run scripts.
 - **Never use `pip`, `venv`, or `virtualenv` directly** — uv handles all of this.
 
-## Running scripts
+## Running the orchestrator
+
+`main.py` at the project root discovers and runs all packages (or selected ones):
+
+```bash
+# Run all packages
+uv run main.py
+
+# Run specific packages
+uv run main.py --packages spotify
+```
+
+A **package** is any subdirectory under `scripts/` that contains runnable `.py` files (not just `__init__.py`). The orchestrator runs all scripts in a package sequentially, alphabetically.
+
+The orchestrator is the primary entry point for cron. Run individual scripts directly only for development/testing.
+
+## Running individual scripts
 
 ```bash
 uv run scripts/<category>/<script>.py
