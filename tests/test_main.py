@@ -121,3 +121,69 @@ def test_run_packages_returns_results_for_all_packages(tmp_path):
         results = run_packages(packages)
 
     assert set(results.keys()) == {"pkg_a", "pkg_b"}
+
+
+# --- print_summary / main ---
+
+import sys
+
+from main import main, print_summary
+
+
+def test_print_summary_does_not_raise(tmp_path):
+    script = tmp_path / "script.py"
+    results = {"spotify": [(script, True), (script, False)]}
+    print_summary(results)  # should not raise
+
+
+def test_main_runs_all_packages_when_no_args(tmp_path):
+    fake_packages = {"spotify": [tmp_path / "dedupe_playlists.py"]}
+
+    with patch("main.discover_packages", return_value=fake_packages), \
+         patch("main.run_packages", return_value={"spotify": [(tmp_path / "dedupe_playlists.py", True)]}) as mock_run, \
+         patch("main.print_summary"), \
+         patch("sys.argv", ["main.py"]):
+        main()
+
+    mock_run.assert_called_once_with(fake_packages)
+
+
+def test_main_filters_to_selected_packages(tmp_path):
+    fake_packages = {
+        "spotify": [tmp_path / "a.py"],
+        "other": [tmp_path / "b.py"],
+    }
+
+    with patch("main.discover_packages", return_value=fake_packages), \
+         patch("main.run_packages", return_value={}) as mock_run, \
+         patch("main.print_summary"), \
+         patch("sys.argv", ["main.py", "--packages", "spotify"]):
+        main()
+
+    called_with = mock_run.call_args[0][0]
+    assert "spotify" in called_with
+    assert "other" not in called_with
+
+
+def test_main_warns_and_skips_unknown_packages(tmp_path):
+    fake_packages = {"spotify": [tmp_path / "a.py"]}
+
+    with patch("main.discover_packages", return_value=fake_packages), \
+         patch("main.run_packages", return_value={}) as mock_run, \
+         patch("main.print_summary"), \
+         patch("sys.argv", ["main.py", "--packages", "nonexistent", "spotify"]):
+        main()
+
+    called_with = mock_run.call_args[0][0]
+    assert "nonexistent" not in called_with
+    assert "spotify" in called_with
+
+
+def test_main_does_not_call_run_packages_when_nothing_selected(tmp_path):
+    with patch("main.discover_packages", return_value={}), \
+         patch("main.run_packages") as mock_run, \
+         patch("main.print_summary"), \
+         patch("sys.argv", ["main.py", "--packages", "nonexistent"]):
+        main()
+
+    mock_run.assert_not_called()
